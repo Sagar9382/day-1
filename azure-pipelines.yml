@@ -1,0 +1,127 @@
+# Azure DevOps Pipeline for Terraform Infrastructure Deployment
+# Automates CSV to tfvars conversion and Terraform Init, Plan & Apply
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - Environment/dev/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - Environment/dev/**
+
+variables:
+  # Update 'azure-service-connection' with your actual Azure Service Connection name in Azure DevOps
+  azureServiceConnection: 'azure-service-connection'
+  workingDirectory: '$(System.DefaultWorkingDirectory)/Environment/dev'
+  terraformVersion: '1.7.0'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+- stage: BuildAndPlan
+  displayName: 'Convert CSV, Init & Plan'
+  jobs:
+  - job: TerraformPlan
+    displayName: 'Terraform Plan Job'
+    steps:
+    
+    # Step 1: Install Terraform CLI
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform $(terraformVersion)'
+      inputs:
+        terraformVersion: '$(terraformVersion)'
+
+    # Step 2: Convert resource-groups.csv to terraform.tfvars using PowerShell
+    - task: PowerShell@2
+      displayName: 'Convert CSV to tfvars'
+      inputs:
+        targetType: 'filePath'
+        filePath: '$(workingDirectory)/scripts/Convert-CsvToTfvars.ps1'
+        workingDirectory: '$(workingDirectory)'
+
+    # Step 3: Display generated terraform.tfvars for verification
+    - task: PowerShell@2
+      displayName: 'Show generated terraform.tfvars'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Get-Content '$(workingDirectory)/terraform.tfvars'
+
+    # Step 4: Azure Login & Terraform Init, Validate, Plan
+    - task: AzureCLI@2
+      displayName: 'Terraform Init, Validate & Plan'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        workingDirectory: '$(workingDirectory)'
+        addSpnToEnvironment: true
+        inlineScript: |
+          set -e
+          echo "Setting ARM credentials for AzureRM provider..."
+          export ARM_CLIENT_ID=$servicePrincipalId
+          export ARM_CLIENT_SECRET=$servicePrincipalKey
+          export ARM_TENANT_ID=$tenantId
+          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+          echo "Initializing Terraform..."
+          terraform init
+
+          echo "Validating Terraform code..."
+          terraform validate
+
+          echo "Running Terraform Plan..."
+          terraform plan -out=tfplan
+
+- stage: Apply
+  displayName: 'Apply Terraform Changes'
+  dependsOn: BuildAndPlan
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: DeployTerraform
+    displayName: 'Terraform Apply Job'
+    environment: 'dev-environment'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          - task: TerraformInstaller@1
+            displayName: 'Install Terraform $(terraformVersion)'
+            inputs:
+              terraformVersion: '$(terraformVersion)'
+
+          - task: PowerShell@2
+            displayName: 'Convert CSV to tfvars'
+            inputs:
+              targetType: 'filePath'
+              filePath: '$(workingDirectory)/scripts/Convert-CsvToTfvars.ps1'
+              workingDirectory: '$(workingDirectory)'
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Init & Apply'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              workingDirectory: '$(workingDirectory)'
+              addSpnToEnvironment: true
+              inlineScript: |
+                set -e
+                export ARM_CLIENT_ID=$servicePrincipalId
+                export ARM_CLIENT_SECRET=$servicePrincipalKey
+                export ARM_TENANT_ID=$tenantId
+                export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+                terraform init
+                terraform apply -auto-approve
