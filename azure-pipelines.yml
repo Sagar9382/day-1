@@ -18,8 +18,8 @@ pr:
       - Environment/dev/**
 
 variables:
-  # Update 'azure-service-connection' with your actual Azure Service Connection name in Azure DevOps
-  azureServiceConnection: 'azure-service-connection'
+  # Updated with user's Azure Service Connection name
+  azureServiceConnection: 'at-connect'
   workingDirectory: '$(System.DefaultWorkingDirectory)/Environment/dev'
   terraformVersion: '1.7.0'
 
