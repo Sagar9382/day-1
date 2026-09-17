@@ -7,17 +7,20 @@ terraform{
     }
 
 
-    backend "azurerm"{
-        resource_group_name = "fruit"
-        storage_account_name = "fruitstorage1"
-        container_name = "fruitcontainer"
-        key = "dev.terraform.tfstate"
-    }
+  #  backend "azurerm"{
+       # resource_group_name = "fruit"
+       # storage_account_name = "fruitstorage1"
+        #container_name = "fruitcontainer"
+        #key = "dev.terraform.tfstate"
+   # }
 }
 
 
 
-provider "azurerm"{
-    features{}
-
+provider "azurerm" {
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
 }
